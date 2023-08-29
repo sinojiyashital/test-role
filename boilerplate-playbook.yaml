@@ -1,0 +1,95 @@
+---
+- hosts: all
+  become: yes
+  vars:
+          password: "Test@123"
+  tasks:
+          - name: create deploy user
+            user:
+                    name: deploy
+                    comment: "deployuser"
+                    generate_ssh_key: yes
+                    ssh_key_bits: 2048
+                    ssh_key_file: .ssh/id_rsa
+
+          - name: change user account password
+            user:
+                    name: user
+                    password: "{{ password | password_hash('sha512') }}"
+
+          - name: adding deploy user to sudoers file
+            lineinfile:
+                    dest: /etc/sudoers
+                    state: present
+                    regexp: 'deploy'
+                    line: 'deploy ALL=(ALL) ALL'
+                    validate: visudo -cf %s
+
+          - name: update run
+            apt:
+                    update_cache: yes
+
+          - name: upgrade run
+            apt:
+                    upgrade: safe
+            
+          - name: install ufw package
+            apt:
+                    name: ufw
+                    state: present
+
+          - name: setup ufw
+            ufw:
+                    state: enabled
+                    policy: deny
+                    
+          - name: allow ssh traffic
+            ufw:
+                    rule: allow
+                    port: 22
+                    proto: tcp
+
+          - name: setup postfix to relay mail
+            debconf:
+                    name: postfix
+                    question: '{{ item.question }}'
+                    value: '{{ item.value }}'
+                    vtype: '{{ item.vtype }}'
+            with_items:
+                    - { question: 'postfix/mailname', value: '{{ ansible_fqdn }}', vtype: 'string' }
+                    - { question: 'postfix/main_mailer_type', value: 'Internet Site', vtype: 'string' }
+
+          - name: relay daily summary email
+            lineinfile:
+                    dest: /etc/cron.daily/00logwatch
+                    regexp: "^/usr/sbin/logwatch"
+                    line: "/usr/sbin/logwatch --output mail --mailto sinojiyashital@gmail.com --detail high"
+                    state: present
+                    create: yes
+
+          - name: change ssh port
+            lineinfile:
+                    dest: /etc/ssh/sshd_config
+                    regex: "^Port"
+                    line: "Port 22"
+                    state: present
+            notify: restart ssh
+
+          - name: disallow root ssh login
+            lineinfile:
+                    dest: /etc/ssh/sshd_config
+                    regexp: "^PermitRootLogin"
+                    line: "PermitRootLogin no"
+                    state: present
+            notify: restart ssh
+
+  handlers:
+          - name: restart ssh
+            service:
+                    name: ssh
+                    state: restarted
+
+          - 
+
+          
+
